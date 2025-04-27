@@ -60,7 +60,7 @@ func ConnectDatabase(cfg *config.Config) (*gorm.DB, error) {
 
 	if err := db.AutoMigrate(
 		&models.User{},
-		&models.Wallet{},
+		&models.WriteLog{},
 	); err != nil {
 		log.Printf("Failed to auto migrate: %v", err)
 		return nil, fmt.Errorf("failed to auto migrate: %v", err)

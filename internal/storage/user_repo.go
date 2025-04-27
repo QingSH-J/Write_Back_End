@@ -1,3 +1,4 @@
+// Package storage implements database access and repository pattern for the application
 package storage
 
 import (
@@ -46,7 +47,7 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 	result := r.db.WithContext(ctx).Where("id = ?", id).First(&user)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("user not found with id %s", id)
+			return nil, ErrRecordNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by id: %w", result.Error)
 	}
@@ -58,7 +59,7 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.
 	result := r.db.WithContext(ctx).Where("email = ?", email).First(&user)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("user not found with email %s", email)
+			return nil, ErrRecordNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by email: %w", result.Error)
 	}

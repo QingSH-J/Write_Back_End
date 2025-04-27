@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"go_backend/Xuans_Gin"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/jinxinyu/go_backend/Xuans_Gin"
 )
 
 func main() {
