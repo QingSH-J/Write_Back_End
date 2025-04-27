@@ -1,0 +1,116 @@
+步骤 0：项目初始化与环境设置
+
+创建项目目录: 在你的工作区创建一个新的项目文件夹，例如 my_writing_app_backend。
+进入目录: cd my_writing_app_backend
+初始化 Go Module: go mod init <你的模块路径> (例如 go mod init github.com/yourusername/my_writing_app_backend)
+初始化 Git: git init
+创建 .gitignore: 添加 .env, 编译后的二进制文件, *.log 等不需要版本控制的文件。
+创建基础目录结构:
+Bash
+
+mkdir -p cmd/server internal/api internal/auth internal/config internal/email internal/middleware internal/models internal/storage internal/utils internal/writing internal/router
+安装 Gin: go get github.com/gin-gonic/gin
+步骤 1：定义核心模型和配置
+
+配置 (internal/config/config.go):
+定义 Config 结构体，包含所有需要的配置项：数据库连接信息 (Host, Port, User, Pass, DBName, SSLMode), JWT 密钥 (JWTSecret), 服务器端口 (ServerPort), 邮件服务凭证 (API Key, Sender Email 等), 是否为生产环境 (IsProduction) 等。
+实现 LoadConfig(path string) (*Config, error) 函数，可以使用 spf13/viper 库从 .env 文件或环境变量加载配置。
+go get github.com/spf13/viper github.com/spf13/pflag (Viper 常用依赖)。
+在项目根目录创建 .env 文件，写入配置（确保 .env 在 .gitignore 中）。
+模型 (internal/models/user.go, internal/models/writing_log.go):
+定义 User 结构体，包含 ID, Name, Email, Password (存储哈希), CreatedAt, UpdatedAt 等字段。添加 GORM 和 JSON 的 struct tags (gorm:"..." json:"...")。
+定义 WritingLog 或类似结构体，用于存储码字记录，例如 ID, UserID, Date, WordCount, Content (如果存全文的话), CreatedAt 等。添加相应的 tags。
+步骤 2：数据库连接与 Repository 层 (先做 User 相关)
+
+安装依赖: go get gorm.io/gorm gorm.io/driver/postgres (或其他数据库驱动)。
+数据库连接 (internal/storage/database.go):
+实现 ConnectDatabase(cfg *config.Config) (*gorm.DB, error) 函数（参考之前的示例），建立数据库连接并返回 *gorm.DB 实例。
+Repository 接口 (internal/storage/repository.go 或直接在 user_repo.go 定义):
+定义 UserRepository 接口，包含需要的数据操作方法，如 Create(ctx context.Context, user *models.User) error, GetByEmail(ctx context.Context, email string) (*models.User, error), GetByID(ctx context.Context, id uint) (*models.User, error)。
+Repository 实现 (internal/storage/user_repo.go):
+定义 userRepository 结构体，包含一个 *gorm.DB 字段。
+实现 NewUserRepository(db *gorm.DB) UserRepository 构造函数。
+实现 UserRepository 接口中定义的所有方法，使用 r.db (GORM 实例) 执行实际的数据库操作 (Create, First, Find 等)。定义并返回特定的错误（如 ErrRecordNotFound）。
+步骤 3：实现通用工具
+
+密码哈希 (internal/utils/hash.go):
+定义 PasswordHasher 接口（可选，为了可测试性）。
+实现 HashPassword(password string) (string, error) 和 CheckPasswordHash(password, hash string) bool 函数，使用 golang.org/x/crypto/bcrypt。
+实现 NewHashUtil() 构造函数（如果定义了接口和结构体）。
+Token 处理 (internal/utils/token.go):
+定义 TokenGenerator 接口（可选）。
+实现 GenerateToken(...) (string, error) 和 ValidateToken(tokenString string) (*Claims, error) 函数，使用 github.com/golang-jwt/jwt/v5。需要从配置中获取 JWT 密钥。
+实现 NewTokenUtil() 构造函数。
+go get github.com/golang-jwt/jwt/v5。
+步骤 4：实现认证功能模块 (Auth - 垂直切片)
+
+API DTOs (internal/api/auth.go):
+定义 RegisterRequest, LoginRequest, UserResponse, LoginResponse 等结构体，并添加 json 和 binding tags。
+Service (internal/auth/service.go):
+定义 Service 结构体，依赖 storage.UserRepository, utils.PasswordHasher, utils.TokenGenerator, email.Service (接口类型)。
+实现 NewService(...) 构造函数注入依赖。
+实现 RegisterUser(ctx context.Context, req api.RegisterRequest) (*models.User, error) 业务逻辑 (检查邮箱 -> 哈希密码 -> 调用 repo.Create -> 可能调用 emailService.SendWelcomeEmail)。定义并返回业务错误 (如 ErrEmailExists)。
+实现 LoginUser(ctx context.Context, email, password string) (string, *models.User, error) 业务逻辑 (调用 repo.GetByEmail -> 调用 utils.CheckPasswordHash -> 调用 utils.GenerateToken)。
+Handler (internal/auth/handler.go):
+定义 Handler 结构体，依赖 auth.Service (接口类型)。
+实现 NewHandler(s *Service) 构造函数。
+实现 Register(c *gin.Context) 方法：绑定请求体到 api.RegisterRequest -> 调用 service.RegisterUser -> 根据结果返回 JSON 响应 (成功则 201，失败则 400/409/500)。
+实现 Login(c *gin.Context) 方法：绑定请求体到 api.LoginRequest -> 调用 service.LoginUser -> 根据结果返回 JSON 响应 (成功则 200 并带 Token，失败则 401/500)。
+路由 (internal/auth/routes.go):
+实现 RegisterAuthRoutes(rg *gin.RouterGroup, service *Service) 函数。
+在函数内部创建 Handler 实例 (handler := NewHandler(service))。
+定义路由组 authGroup := rg.Group("/auth")。
+注册路由 authGroup.POST("/register", handler.Register) 和 authGroup.POST("/login", handler.Login)。
+步骤 5：实现中间件
+
+CORS (internal/middleware/cors.go): 实现 CORSMiddleware() 函数（参考之前的示例）。
+认证中间件 (internal/middleware/auth_middleware.go):
+实现 AuthMiddleware() 工厂函数，可能需要 utils.TokenGenerator (或其验证部分) 作为依赖。
+返回的 gin.HandlerFunc 逻辑：从请求头 (Authorization: Bearer <token>) 获取 Token -> 调用 tokenUtil.ValidateToken 验证 -> 如果有效，将用户 ID 等信息存入 c.Set("userID", userID) 并调用 c.Next() -> 如果无效，调用 c.AbortWithStatusJSON(http.StatusUnauthorized, ...) 中断请求。
+步骤 6：配置路由聚合
+
+internal/router/router.go:
+实现 SetupRouter(...) 函数（参考之前的示例）。
+接收各 Service 实例作为参数。
+创建 Gin 引擎 r := gin.Default()。
+应用全局中间件 r.Use(middleware.CORSMiddleware())。
+创建 API 组 apiV1 := r.Group("/api/v1")。
+调用 auth.RegisterAuthRoutes(apiV1, authService)。
+（后续步骤会在这里调用其他模块的路由注册函数）。
+添加 /health 等路由。
+返回 r。
+步骤 7：编写程序入口 (main.go)
+
+cmd/server/main.go:
+LoadConfig 加载配置。
+storage.ConnectDatabase 连接数据库。
+创建 Repositories: userRepo := storage.NewUserRepository(db)。
+创建 Utils: hashUtil := utils.NewHashUtil(), tokenUtil := utils.NewTokenUtil(cfg.JWTSecret)。
+创建 Services: emailService := email.NewEmailService(...), authService := auth.NewService(userRepo, hashUtil, tokenUtil, emailService)。
+创建 Router: r := router.SetupRouter(authService, ...)。
+启动服务器: r.Run(":" + cfg.ServerPort)。
+步骤 8：实现其他功能模块 (Writing, Email Service 等)
+
+Email Service (internal/email/service.go): 实现 Service 结构体和 NewEmailService，以及 SendWelcomeEmail 等方法。可能需要安装邮件库 (go get github.com/jordan-wright/email 或使用 AWS SES/SendGrid SDK)。
+Writing Module: 重复步骤 2 (Repository for WritingLog), 步骤 4 (Service, Handler, Routes for Writing)。
+User Module (Profile etc.): 如果需要用户查看/修改自己信息的功能，也重复步骤 4。
+更新 router.go: 调用新模块的路由注册函数。
+更新 main.go: 创建并注入新模块的 Repository 和 Service 实例。
+步骤 9：添加测试
+
+为 Utils, Services (使用 Mock Repository/Service), Repositories (使用测试数据库或 Mock DB), Handlers (使用 net/http/httptest) 编写单元测试和集成测试。
+步骤 10：完善与部署
+
+添加更详细的日志记录。
+实现更统一、健壮的错误处理机制。
+编写 Dockerfile。
+设置 CI/CD。
+部署。
+这个步骤列表看起来很多，但核心思想是分层和模块化。每次只关注一个层或一个模块的实现，并通过接口和依赖注入将它们联系起来。建议从 Auth 功能 开始，因为它通常是很多其他功能的基础。
+
+Current time is Saturday, April 26, 2025 at 6:49:34 PM MST in United States.
+
+
+
+
+
