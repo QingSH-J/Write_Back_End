@@ -22,7 +22,8 @@ func ConnectDatabase(cfg *config.Config) (*gorm.DB, error) {
 		cfg.DBSSLMode,
 		cfg.DBTimeZone,
 	)
-	log.Printf("Connecting to database...")
+	log.Printf("尝试连接数据库: %s@%s:%s/%s", cfg.DBUser, cfg.DBHost, cfg.DBPort, cfg.DBName)
+
 	gormConfig := &gorm.Config{}
 	if cfg.Environment != "development" {
 		gormConfig.Logger = logger.Default.LogMode(logger.Info)
@@ -30,44 +31,66 @@ func ConnectDatabase(cfg *config.Config) (*gorm.DB, error) {
 		gormConfig.Logger = logger.Default.LogMode(logger.Warn)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
+	// 添加重试逻辑
+	var db *gorm.DB
+	var err error
+	maxRetries := 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("数据库连接尝试 %d/%d", attempt+1, maxRetries)
+			time.Sleep(time.Second * time.Duration(attempt*2)) // 递增等待时间
+		}
+
+		db, err = gorm.Open(postgres.Open(dsn), gormConfig)
+		if err == nil {
+			break
+		}
+
+		log.Printf("数据库连接尝试 %d 失败: %v", attempt+1, err)
+	}
+
 	if err != nil {
-		log.Printf("Failed to connect to database: %v", err)
+		log.Printf("经过多次尝试后仍然无法连接数据库: %v", err)
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	log.Printf("Connected to database")
+	log.Printf("数据库连接成功")
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Printf("Failed to get database instance: %v", err)
+		log.Printf("无法获取数据库实例: %v", err)
 		return nil, fmt.Errorf("failed to get database instance: %v", err)
 	} else {
+		// 设置适当的连接池配置
 		sqlDB.SetMaxIdleConns(cfg.DBMaxIdleConns)
 		sqlDB.SetMaxOpenConns(cfg.DBMaxOpenConns)
 		sqlDB.SetConnMaxLifetime(time.Duration(cfg.DBConnMaxLifetimeMinutes) * time.Minute)
 
+		// 设置最短连接保持时间
+		sqlDB.SetConnMaxIdleTime(time.Minute * 5)
+
+		pingStart := time.Now()
 		if err := sqlDB.Ping(); err != nil {
-			log.Printf("Failed to ping database: %v", err)
+			log.Printf("数据库Ping失败: %v", err)
 			return nil, fmt.Errorf("failed to ping database: %v", err)
 		} else {
-			log.Printf("Database pinged successfully")
+			log.Printf("数据库Ping成功，耗时: %v", time.Since(pingStart))
 		}
 	}
-	log.Printf("Database connection successful")
-	log.Printf("Database pinged successfully")
-	log.Printf("Trying to auto migrate")
+
+	log.Printf("开始自动迁移表结构")
+	migrateStart := time.Now()
 
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.WriteLog{},
 	); err != nil {
-		log.Printf("Failed to auto migrate: %v", err)
+		log.Printf("自动迁移失败: %v", err)
 		return nil, fmt.Errorf("failed to auto migrate: %v", err)
 	} else {
-		log.Printf("Auto migrate successful")
+		log.Printf("自动迁移成功，耗时: %v", time.Since(migrateStart))
 	}
 
 	return db, nil
-
 }

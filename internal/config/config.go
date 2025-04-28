@@ -38,18 +38,22 @@ type Config struct {
 }
 
 func LoadConfig(path string) (config *Config, errr error) {
+	config = &Config{}
+
 	viper.SetDefault("ENVIRONMENT", "development")
 	viper.SetDefault("SERVER_PORT", "8080")
 	viper.SetDefault("DB_HOST", "localhost")
 	viper.SetDefault("DB_PORT", "5432")
-	viper.SetDefault("DB_USER", "postgres")
+	viper.SetDefault("DB_USER", "myuser")
 	viper.SetDefault("DB_PASSWORD", "postgres")
-	viper.SetDefault("DB_NAME", "postgres")
+	viper.SetDefault("DB_NAME", "writing_db")
 	viper.SetDefault("DB_SSLMODE", "disable")
 	viper.SetDefault("DB_TIMEZONE", "Asia/Shanghai")
 	viper.SetDefault("DB_MAX_IDLE_CONNS", 10)
 	viper.SetDefault("DB_MAX_OPEN_CONNS", 100)
-	viper.SetDefault("DB_CONN_MAX_LIFETIME_MINUTES", 10)
+	viper.SetDefault("DB_CONN_MAX_LIFETIME_MINUTES", 100)
+	viper.SetDefault("JWT_SECRET", "your-secret-key")
+	viper.SetDefault("JWT_EXPIRATION_MINUTES", 60)
 
 	viper.AddConfigPath(path)
 	viper.SetConfigName(".env")
@@ -62,10 +66,13 @@ func LoadConfig(path string) (config *Config, errr error) {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			log.Println("Error reading .env file:", err)
 		} else {
-			log.Println("No .env file found, will use system env")
-			return nil, err
+			log.Println("No .env file found, using default values")
+			// 不返回错误，继续使用默认值
 		}
+	} else {
+		log.Println("Config file loaded successfully")
 	}
+
 	err = viper.Unmarshal(&config)
 	if err != nil {
 		return nil, err
