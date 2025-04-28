@@ -3,18 +3,17 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/jinxinyu/go_backend/internal/auth"
 	"github.com/jinxinyu/go_backend/internal/middleware"
-	"gorm.io/gorm"
 )
 
 // SetupRouter configures the HTTP router for the application
-func SetupRouter(db *gorm.DB) *gin.Engine {
+func SetupRouter(authService *auth.Service) *gin.Engine {
 	r := gin.Default()
 	config := &middleware.CorsOptions{
-		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "accept", "origin", "Cache-Control", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowAllOrigins:  []string{"http://localhost:3000"},
+		AllowAllMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowAllHeaders:  []string{"Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "accept", "origin", "Cache-Control", "X-Requested-With"},
 		AllowCredentials: true,
 	}
 	r.Use(middleware.NewMiddleware(config))
@@ -26,6 +25,9 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 		})
 	})
 
+	// Register auth routes
+	apiv1 := r.Group("/api/v1")
+	auth.RegisterUserRoutes(apiv1, authService)
 	// Add more routes here...
 
 	return r
